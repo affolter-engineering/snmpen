@@ -12,8 +12,8 @@
 
 ## 1.0 2026-04-07
 - Clean git history for first public release
-- Switch to hachling
-- ALlow to save output to file
+- Switch to hatchling
+- Allow to save output to file
 
 ## 0.4 2024-02-11
 - Convert output to use rich
@@ -25,7 +25,7 @@
 - Fix typos and docstrings
 
 ## 0.3 2022-04-03
-- Allow to save the ouput
+- Allow to save the output
 - Adjust pysnmp usage
 - Use humanize
 
