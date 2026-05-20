@@ -1,5 +1,9 @@
 # ChangeLog
 
+## 1.1.1 2026-05-20
+- Add more unit tests
+- Fix typos
+
 ## 1.1.0 2026-04-09
 - Clean-up
 
