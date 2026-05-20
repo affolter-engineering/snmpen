@@ -3,6 +3,7 @@
 let
   python = pkgs.python313;
   pythonEnv = python.withPackages (ps: [
+    ps.hatchling
     ps.humanize
     ps.pysnmp
     ps.rich
