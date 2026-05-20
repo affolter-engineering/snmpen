@@ -1,8 +1,8 @@
 # SNMPen (SNMP Enumerator)
 
-You know `snmpcheck`? Good, `snmpen` is doing the same. It's another enumerator for SNMP enabled hosts. It's started as a drop-in replacement for `snmpcheck` which was no longer maintained back in 2018/2019. Nowadays, `snmpen` has it's own heart and mind but still shares a similar CLI interface with `snmpcheck`.
+You know `snmpcheck`? Good, `snmpen` is doing the same. It's another enumerator for SNMP enabled hosts. It started as a drop-in replacement for `snmpcheck` which was no longer maintained back in 2018/2019. Nowadays, `snmpen` has its own heart and mind but still shares a similar CLI interface with `snmpcheck`.
 
-Enummerations are happening against RFC1157-compliant systems. The heavy lifting is done by `pysnmp`.
+Enumerations are happening against RFC1157-compliant systems. The heavy lifting is done by `pysnmp`.
 
 ## Installation
 
@@ -10,7 +10,7 @@ Enummerations are happening against RFC1157-compliant systems. The heavy lifting
 $ pip install snmpen
 ```
 
-For Nix or NixOS users is a package available. Keep in mind that the lastest releases might only
+For Nix or NixOS users is a package available. Keep in mind that the latest releases might only
 be present in the ``unstable`` channel.
 
 ```bash
