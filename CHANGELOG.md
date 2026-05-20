@@ -1,5 +1,8 @@
 # ChangeLog
 
+## 1.1.2 2026-05-20
+- Update hatchling
+
 ## 1.1.1 2026-05-20
 - Add more unit tests
 - Fix typos
