@@ -39,6 +39,7 @@ run = "pytest"
 [project.urls]
 Homepage = "https://github.com/affolter-engineering/snmpen"
 Issues = "https://github.com/affolter-engineering/snmpen/issues"
+Changelog = "https://github.com/affolter-engineering/snmpen/blob/main/CHANGELOG.md"
 
 [project.scripts]
 snmpen = "snmpen.snmpen:main"
