@@ -37,7 +37,7 @@ dependencies = [
 run = "pytest"
 
 [project.urls]
-Homepage = "https://github.com/fabaff/snmpen"
+Homepage = "https://github.com/affolter-engineering/snmpen"
 
 [project.scripts]
 snmpen = "snmpen.snmpen:main"
