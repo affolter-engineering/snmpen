@@ -2,8 +2,6 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from snmpen.snmpen import (
     detect_supported_snmp_versions,
     snmp_get,
