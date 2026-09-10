@@ -13,7 +13,7 @@ authors = [
   { name = "Fabian Affolter", email = "fabian@affolter-engineering.ch" }
 ]
 dependencies = [
-  "humanize>=4.0",
+  "humanize>=4.16",
   "pysnmp>=7.1.22",
   "rich>=15.0",
 ]
