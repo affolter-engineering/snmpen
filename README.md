@@ -7,14 +7,14 @@ Enumerations are happening against RFC1157-compliant systems. The heavy lifting 
 ## Installation
 
 ```bash
-$ pip install snmpen
+pip install snmpen
 ```
 
 For Nix or NixOS users is a package available. Keep in mind that the latest releases might only
 be present in the ``unstable`` channel.
 
 ```bash
- $ nix-env -iA nixos.snmpen
+nix-env -iA nixos.snmpen
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ be present in the ``unstable`` channel.
 The tools support IPv4 addresses, IPv6 addresses and FQDNs as input.
 
 ```bash
-$ snmpen -h
+snmpen -h
 
 options:
   -p, --port PORT       SNMP port (default: 161)
