@@ -27,7 +27,7 @@ test = [
 [tool.hatch.envs.test]
 dependencies = [
   "pytest>=9",
-  "pytest-asyncio>=0.21",
+  "pytest-asyncio>=1.4.0",
   "pysnmp>=7.1.22",
   "rich>=14.0",
   "humanize>=4.0",
