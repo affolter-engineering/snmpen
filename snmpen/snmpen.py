@@ -2,12 +2,11 @@
 
 import argparse
 import asyncio
-import builtins
 import re
 import signal
 import sys
 import traceback
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from pysnmp.hlapi.v3arch.asyncio import (
     CommunityData,
@@ -23,15 +22,15 @@ from pysnmp.hlapi.v3arch.asyncio import (
 )
 from pysnmp.proto.rfc1902 import OctetString
 
-from .helpers import (
+from snmpen.helpers import (
     community_type,
     port_type,
     retries_type,
     target_to_output_filename,
     target_type,
 )
-from .output import print_output, render_output_rich_text, render_output_text
-from .types import (
+from snmpen.output import print_output, render_output_rich_text, render_output_text
+from snmpen.types import (
     DEVICE_STATUSES,
     DEVICE_TYPES,
     FS_TYPES,
@@ -39,7 +38,7 @@ from .types import (
     STORAGE_TYPES,
     TCP_STATES,
 )
-from .utils import (
+from snmpen.utils import (
     extract_job_attr,
     format_endpoint,
     get_ip_string,
@@ -52,9 +51,14 @@ from .utils import (
     value_to_string,
 )
 
-signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
 
 AUTO_TARGET_OUTPUT = "__TARGET_OUTPUT__"
+
+SNMP_DATE_MIN_BYTES = 8
+IP_VERSION_6 = 6
+PROCESS_STATUS_RUNNABLE = 2
+IP_FORWARDING_DISABLED = 2
 
 
 async def snmp_get(engine, auth_data, transport, oid):
@@ -71,7 +75,7 @@ async def snmp_get(engine, auth_data, transport, oid):
         if error_indication or error_status:
             return None
         return var_binds[0][1] if var_binds else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -86,9 +90,10 @@ async def snmp_set(engine, auth_data, transport, oid, value):
             ObjectType(ObjectIdentity(oid), value),
             lookupMib=False,
         )
-        return not error_indication and not error_status
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
+    else:
+        return not error_indication and not error_status
 
 
 async def snmp_walk(engine, auth_data, transport, oids):
@@ -110,13 +115,11 @@ async def snmp_walk(engine, auth_data, transport, oids):
 
             row_values = []
             next_object_types = []
-            for base_oid, var_bind in zip(base_oids, var_binds):
+            for base_oid, var_bind in zip(base_oids, var_binds, strict=False):
                 current_oid = str(var_bind[0])
                 if is_null(var_bind[1]):
                     return
-                if current_oid != base_oid and not current_oid.startswith(
-                    base_oid + "."
-                ):
+                if current_oid != base_oid and not current_oid.startswith(base_oid + "."):
                     return
                 row_values.append(var_bind[1])
                 next_object_types.append(ObjectType(ObjectIdentity(current_oid)))
@@ -126,7 +129,7 @@ async def snmp_walk(engine, auth_data, transport, oids):
 
             yield row_values
             object_types = next_object_types
-    except Exception:
+    except Exception:  # noqa: BLE001
         return
 
 
@@ -144,7 +147,7 @@ async def detect_supported_snmp_versions(engine, transport, community):
     return supported_versions
 
 
-async def enumerate(
+async def collect_snmp_data(
     engine,
     auth_data,
     transport,
@@ -155,9 +158,7 @@ async def enumerate(
 ):
     """Perform SNMP enumeration and return the collected data."""
     output_data = {"Host IP address": target}
-    output_data["Supported SNMP versions"] = (
-        ", ".join(supported_versions) if supported_versions else "-"
-    )
+    output_data["Supported SNMP versions"] = ", ".join(supported_versions) if supported_versions else "-"
 
     # Basic system info
     sys_name_value = await snmp_get(engine, auth_data, transport, "1.3.6.1.2.1.1.5.0")
@@ -194,25 +195,21 @@ async def enumerate(
 
     # Pre-calculate start date for use with uptime fields
     # Use snmp_uptime if available, otherwise fall back to sys_uptime
-    uptime_for_start = (
-        snmp_uptime if snmp_uptime and not is_null(snmp_uptime) else sys_uptime
-    )
+    uptime_for_start = snmp_uptime if snmp_uptime and not is_null(snmp_uptime) else sys_uptime
     start_date_str = None
 
     # System date (RFC 2579 DateAndTime)
-    system_date_val = await snmp_get(
-        engine, auth_data, transport, "1.3.6.1.2.1.25.1.2.0"
-    )
+    system_date_val = await snmp_get(engine, auth_data, transport, "1.3.6.1.2.1.25.1.2.0")
     system_date_dt = None
     system_date_s = value_to_string(system_date_val)
     if not system_date_val or is_null(system_date_val) or "Null" in system_date_s:
         output_data["System date"] = "-"
         # Fall back to current system date if SNMP date is not available for the calculation
-        system_date_dt = datetime.now()
+        system_date_dt = datetime.now(tz=UTC)
     else:
         try:
             raw = bytes(system_date_val)
-            if len(raw) >= 8:
+            if len(raw) >= SNMP_DATE_MIN_BYTES:
                 year = raw[0] * 256 + raw[1]
                 month = raw[2]
                 day = raw[3]
@@ -228,6 +225,7 @@ async def enumerate(
                     minutes,
                     seconds,
                     tenths * 100000,
+                    tzinfo=UTC,
                 )
                 output_data["System date"] = (
                     f"{year}-{month:02d}-{day:02d} {hour:02d}:{minutes:02d}:{seconds:02d}.{tenths}"
@@ -235,11 +233,11 @@ async def enumerate(
             else:
                 output_data["System date"] = "-"
                 # Fall back to current system date for the calculation if SNMP date is not valid
-                system_date_dt = datetime.now()
-        except Exception:
+                system_date_dt = datetime.now(tz=UTC)
+        except (ValueError, IndexError, TypeError, OverflowError):
             output_data["System date"] = "-"
             # Fall back to current system date for the calculation if SNMP date is not parseable
-            system_date_dt = datetime.now()
+            system_date_dt = datetime.now(tz=UTC)
 
     # Calculate start date and append to uptime fields
     uptime_seconds = timeticks_to_seconds(uptime_for_start)
@@ -248,41 +246,34 @@ async def enumerate(
         start_date_str = start_date.strftime("%Y-%m-%d %H:%M:%S")
         # Append start date to whichever uptime fields are available
         if sys_uptime and not is_null(sys_uptime):
-            output_data["Uptime system"] = (
-                f"{output_data['Uptime system']} (Start: {start_date_str})"
-            )
+            output_data["Uptime system"] = f"{output_data['Uptime system']} (Start: {start_date_str})"
         if snmp_uptime and not is_null(snmp_uptime):
-            output_data["Uptime snmp"] = (
-                f"{output_data['Uptime snmp']} (Start: {start_date_str})"
-            )
+            output_data["Uptime snmp"] = f"{output_data['Uptime snmp']} (Start: {start_date_str})"
 
     # Windows-specific: domain, users
     if "Windows" in sys_desc:
-        domain_value = await snmp_get(
-            engine, auth_data, transport, "1.3.6.1.4.1.77.1.4.1.0"
-        )
+        domain_value = await snmp_get(engine, auth_data, transport, "1.3.6.1.4.1.77.1.4.1.0")
         output_data["Domain"] = value_to_string(domain_value).strip()
 
-        users = []
-        async for row in snmp_walk(
-            engine,
-            auth_data,
-            transport,
-            ["1.3.6.1.4.1.77.1.2.25.1.1", "1.3.6.1.4.1.77.1.2.25.1"],
-        ):
-            users.append([value_to_string(row[0])])
+        users = [
+            [value_to_string(row[0])]
+            async for row in snmp_walk(
+                engine,
+                auth_data,
+                transport,
+                ["1.3.6.1.4.1.77.1.2.25.1.1", "1.3.6.1.4.1.77.1.2.25.1"],
+            )
+        ]
         if users:
             output_data["User accounts"] = users
 
     # Network information
     network_information = {}
-    ip_forwarding_value = await snmp_get(
-        engine, auth_data, transport, "1.3.6.1.2.1.4.1.0"
-    )
+    ip_forwarding_value = await snmp_get(engine, auth_data, transport, "1.3.6.1.2.1.4.1.0")
     if ip_forwarding_value is not None and not is_null(ip_forwarding_value):
         try:
             ipf = int(str(ip_forwarding_value))
-            if ipf in (0, 2):
+            if ipf in (0, IP_FORWARDING_DISABLED):
                 network_information["IP forwarding enabled"] = "no"
             elif ipf == 1:
                 network_information["IP forwarding enabled"] = "yes"
@@ -365,31 +356,30 @@ async def enumerate(
         output_data["Network interfaces"] = network_interfaces
 
     # Network IP
-    network_ip = []
-    async for row in snmp_walk(
-        engine,
-        auth_data,
-        transport,
+    network_ip = [
         [
-            "1.3.6.1.2.1.4.20.1.2",
-            "1.3.6.1.2.1.4.20.1.1",
-            "1.3.6.1.2.1.4.20.1.3",
-            "1.3.6.1.2.1.4.20.1.4",
-        ],
-    ):
-        # row[0] = ifIndex, row[1] = ipAddr, row[2] = netMask, row[3] = bcastAddr
-        network_ip.append(
+            value_to_string(row[0]),
+            get_ip_string(row[1]),
+            get_ip_string(row[2]),
+            value_to_string(row[3]),
+        ]
+        async for row in snmp_walk(
+            engine,
+            auth_data,
+            transport,
             [
-                value_to_string(row[0]),
-                get_ip_string(row[1]),
-                get_ip_string(row[2]),
-                value_to_string(row[3]),
-            ]
+                "1.3.6.1.2.1.4.20.1.2",
+                "1.3.6.1.2.1.4.20.1.1",
+                "1.3.6.1.2.1.4.20.1.3",
+                "1.3.6.1.2.1.4.20.1.4",
+            ],
         )
+    ]
     if network_ip:
         output_data["Network IP"] = [
-            ["Id", "IP Address", "Netmask", "Broadcast"]
-        ] + network_ip
+            ["Id", "IP Address", "Netmask", "Broadcast"],
+            *network_ip,
+        ]
 
     # Routing
     routing = []
@@ -412,8 +402,9 @@ async def enumerate(
         routing.append([destination, hop, mask, metric or "-"])
     if routing:
         output_data["Routing information"] = [
-            ["Destination", "Next hop", "Mask", "Metric"]
-        ] + routing
+            ["Destination", "Next hop", "Mask", "Metric"],
+            *routing,
+        ]
 
     # TCP connections
     if not disable_tcp:
@@ -431,33 +422,15 @@ async def enumerate(
             ],
         ):
             ladd, lport, radd, rport, state = row
-            ladd_string = (
-                "-"
-                if (is_null(ladd) or not value_to_string(ladd))
-                else value_to_string(ladd)
-            )
-            lport_string = (
-                "-"
-                if (is_null(lport) or not value_to_string(lport))
-                else value_to_string(lport)
-            )
-            radd_string = (
-                "-"
-                if (is_null(radd) or not value_to_string(radd))
-                else value_to_string(radd)
-            )
-            rport_string = (
-                "-"
-                if (is_null(rport) or not value_to_string(rport))
-                else value_to_string(rport)
-            )
+            ladd_string = "-" if (is_null(ladd) or not value_to_string(ladd)) else value_to_string(ladd)
+            lport_string = "-" if (is_null(lport) or not value_to_string(lport)) else value_to_string(lport)
+            radd_string = "-" if (is_null(radd) or not value_to_string(radd)) else value_to_string(radd)
+            rport_string = "-" if (is_null(rport) or not value_to_string(rport)) else value_to_string(rport)
             try:
                 state_string = TCP_STATES.get(int(str(state)), "unknown")
             except (ValueError, TypeError):
                 state_string = "unknown"
-            tcp.append(
-                [ladd_string, lport_string, radd_string, rport_string, state_string]
-            )
+            tcp.append([ladd_string, lport_string, radd_string, rport_string, state_string])
         if tcp:
             output_data["TCP connections and listening ports"] = [
                 [
@@ -466,17 +439,17 @@ async def enumerate(
                     "Remote address",
                     "Remote port",
                     "State",
-                ]
-            ] + tcp
+                ],
+                *tcp,
+            ]
 
     # UDP ports
-    udp = []
-    async for row in snmp_walk(
-        engine, auth_data, transport, ["1.3.6.1.2.1.7.5.1.1", "1.3.6.1.2.1.7.5.1.2"]
-    ):
-        udp.append([value_to_string(row[0]), value_to_string(row[1])])
+    udp = [
+        [value_to_string(row[0]), value_to_string(row[1])]
+        async for row in snmp_walk(engine, auth_data, transport, ["1.3.6.1.2.1.7.5.1.1", "1.3.6.1.2.1.7.5.1.2"])
+    ]
     if udp:
-        output_data["Listening UDP ports"] = [["Local address", "Local port"]] + udp
+        output_data["Listening UDP ports"] = [["Local address", "Local port"], *udp]
 
     # Windows-specific: network services, shares, IIS
     if "Windows" in sys_desc:
@@ -491,26 +464,25 @@ async def enumerate(
             network_services.append([n, value_to_string(row[0])])
             n += 1
         if network_services:
-            output_data["Network services"] = [["Index", "Name"]] + network_services
+            output_data["Network services"] = [["Index", "Name"], *network_services]
 
-        share = []
-        async for row in snmp_walk(
-            engine,
-            auth_data,
-            transport,
-            [
-                "1.3.6.1.4.1.77.1.2.27.1.1",
-                "1.3.6.1.4.1.77.1.2.27.1.2",
-                "1.3.6.1.4.1.77.1.2.27.1.3",
-            ],
-        ):
-            share.append(
-                {
-                    "  Name": value_to_string(row[0]),
-                    "  Path": value_to_string(row[1]),
-                    "  Comment": value_to_string(row[2]),
-                }
+        share = [
+            {
+                "  Name": value_to_string(row[0]),
+                "  Path": value_to_string(row[1]),
+                "  Comment": value_to_string(row[2]),
+            }
+            async for row in snmp_walk(
+                engine,
+                auth_data,
+                transport,
+                [
+                    "1.3.6.1.4.1.77.1.2.27.1.1",
+                    "1.3.6.1.4.1.77.1.2.27.1.2",
+                    "1.3.6.1.4.1.77.1.2.27.1.3",
+                ],
             )
+        ]
         if share:
             output_data["Share"] = share
 
@@ -609,19 +581,10 @@ async def enumerate(
 
     hr_remote = await snmp_get(engine, auth_data, transport, "1.3.6.1.2.1.25.3.8.1.3.1")
     hr_remote_string = value_to_string(hr_remote)
-    if (
-        hr_remote
-        and not is_null(hr_remote)
-        and "noSuch" not in hr_remote_string
-        and "Null" not in hr_remote_string
-    ):
-        file_system["Remote mount point"] = (
-            hr_remote_string if hr_remote_string else "-"
-        )
+    if hr_remote and not is_null(hr_remote) and "noSuch" not in hr_remote_string and "Null" not in hr_remote_string:
+        file_system["Remote mount point"] = hr_remote_string if hr_remote_string else "-"
 
-    hr_fs_type = await snmp_get(
-        engine, auth_data, transport, "1.3.6.1.2.1.25.3.8.1.4.1"
-    )
+    hr_fs_type = await snmp_get(engine, auth_data, transport, "1.3.6.1.2.1.25.3.8.1.4.1")
     if hr_fs_type and not is_null(hr_fs_type):
         fs_str = FS_TYPES.get(value_to_string(hr_fs_type))
         if fs_str:
@@ -658,26 +621,26 @@ async def enumerate(
         except (ValueError, TypeError):
             status_string = "unknown"
         descr_string = "unknown" if is_null(descr) else value_to_string(descr)
-        device_information.append(
-            [value_to_string(index), type_string, status_string, descr_string]
-        )
+        device_information.append([value_to_string(index), type_string, status_string, descr_string])
 
     if device_information:
         output_data["Device information"] = [
-            ["Id", "Type", "Status", "Descr"]
-        ] + device_information
+            ["Id", "Type", "Status", "Descr"],
+            *device_information,
+        ]
 
     # Software components
-    software_list = []
-    async for row in snmp_walk(
-        engine,
-        auth_data,
-        transport,
-        ["1.3.6.1.2.1.25.6.3.1.1", "1.3.6.1.2.1.25.6.3.1.2"],
-    ):
-        software_list.append([value_to_string(row[0]), value_to_string(row[1])])
+    software_list = [
+        [value_to_string(row[0]), value_to_string(row[1])]
+        async for row in snmp_walk(
+            engine,
+            auth_data,
+            transport,
+            ["1.3.6.1.2.1.25.6.3.1.1", "1.3.6.1.2.1.25.6.3.1.2"],
+        )
+    ]
     if software_list:
-        output_data["Software components"] = [["Index", "Name"]] + software_list
+        output_data["Software components"] = [["Index", "Name"], *software_list]
 
     # Processes
     process_list = []
@@ -697,7 +660,7 @@ async def enumerate(
         try:
             status = int(str(status))
             status_string = (
-                "running" if status == 1 else ("runnable" if status == 2 else "unknown")
+                "running" if status == 1 else ("runnable" if status == PROCESS_STATUS_RUNNABLE else "unknown")
             )
         except (ValueError, TypeError):
             status_string = "unknown"
@@ -712,8 +675,9 @@ async def enumerate(
         )
     if process_list:
         output_data["Processes"] = [
-            ["Id", "Status", "Name", "Path", "Parameters"]
-        ] + process_list
+            ["Id", "Status", "Name", "Path", "Parameters"],
+            *process_list,
+        ]
 
     # HP LaserJet printer enumeration
     hp_jobs = []
@@ -744,9 +708,7 @@ async def enumerate(
         domain = extract_job_attr(domain_value)
         app_name = extract_job_attr(app_name_value)
         app_cmd = extract_job_attr(app_cmd_value)
-        timestamp = (
-            None if is_null(timestamp_value) else extract_job_attr(timestamp_value)
-        )
+        timestamp = None if is_null(timestamp_value) else extract_job_attr(timestamp_value)
         if timestamp is not None:
             hp_jobs.append(
                 {
@@ -768,7 +730,7 @@ async def enumerate(
 async def run_enumeration(
     target,
     port,
-    timeout,
+    snmp_timeout,
     retries,
     community,
     mp_model,
@@ -780,32 +742,28 @@ async def run_enumeration(
     engine = SnmpEngine()
     try:
         auth_data = CommunityData(community, mpModel=mp_model)
-        transport_class = Udp6TransportTarget if ip_version == 6 else UdpTransportTarget
-        transport = await transport_class.create(
-            (target, port), timeout=timeout, retries=retries
-        )
+        transport_class = Udp6TransportTarget if ip_version == IP_VERSION_6 else UdpTransportTarget
+        transport = await transport_class.create((target, port), timeout=snmp_timeout, retries=retries)
 
-        supported_versions = await detect_supported_snmp_versions(
-            engine, transport, community
-        )
+        supported_versions = await detect_supported_snmp_versions(engine, transport, community)
 
         selected_version = "SNMPv1" if mp_model == 0 else "SNMPv2c"
         if not supported_versions:
-            raise TimeoutError("No SNMP response from target")
+            msg = "No SNMP response from target"
+            raise TimeoutError(msg)
 
         if selected_version not in supported_versions:
             supported_text = ", ".join(supported_versions)
-            raise RuntimeError(
-                f"Selected {selected_version} is not supported by target "
-                f"(supported: {supported_text})"
-            )
+            msg = f"Selected {selected_version} is not supported by target (supported: {supported_text})"
+            raise RuntimeError(msg)
 
         # Fail fast on non-responsive targets instead of timing out across many OIDs.
         probe = await snmp_get(engine, auth_data, transport, "1.3.6.1.2.1.1.1.0")
         if probe is None:
-            raise TimeoutError("No SNMP response from target")
+            msg = "No SNMP response from target"
+            raise TimeoutError(msg)
 
-        return await enumerate(
+        return await collect_snmp_data(
             engine,
             auth_data,
             transport,
@@ -930,12 +888,8 @@ def main():
         metavar="FILE",
         help="Read targets from FILE (one host per line)",
     )
-    parser.add_argument(
-        "-v", "--version", action="store_true", help="Show script version and exit"
-    )
-    parser.add_argument(
-        "-h", "--help", action="store_true", help="Show this help message and exit"
-    )
+    parser.add_argument("-v", "--version", action="store_true", help="Show script version and exit")
+    parser.add_argument("-h", "--help", action="store_true", help="Show this help message and exit")
     parser.add_argument(
         "target",
         nargs="?",
@@ -957,7 +911,7 @@ def main():
     requested_targets = []
     if args.hosts_file:
         try:
-            with open(args.hosts_file, "r", encoding="utf-8") as hosts_file:
+            with open(args.hosts_file, encoding="utf-8") as hosts_file:
                 for raw_line in hosts_file:
                     line = raw_line.strip()
                     if not line or line.startswith("#"):
@@ -979,15 +933,12 @@ def main():
 
     community = args.community
     port = args.port
-    timeout = args.timeout
+    snmp_timeout = args.timeout
     retries = args.retries
     check_write = args.write
     disable_tcp = args.disable_tcp
 
-    if args.snmp_version == "1":
-        mp_model = 0  # SNMPv1
-    else:
-        mp_model = 1  # SNMPv2c
+    mp_model = 0 if args.snmp_version == "1" else 1
 
     if check_write:
         print("Write access check enabled\n")
@@ -1010,18 +961,15 @@ def main():
 
         output_data = None
 
-        for idx, (target, ip_version) in builtins.enumerate(targets, start=1):
-            print(
-                f"Connecting to {format_endpoint(target, port)} "
-                f"with community '{community}' ..."
-            )
+        for target, ip_version in targets:
+            print(f"Connecting to {format_endpoint(target, port)} with community '{community}' ...")
 
             try:
                 output_data = asyncio.run(
                     run_enumeration(
                         target,
                         port,
-                        timeout,
+                        snmp_timeout,
                         retries,
                         community,
                         mp_model,
@@ -1031,7 +979,7 @@ def main():
                     )
                 )
                 break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 exc_name = type(exc).__name__
                 exc_str = str(exc).lower()
                 if "timeout" in exc_name.lower() or "timeout" in exc_str:
@@ -1052,9 +1000,7 @@ def main():
         if not args.output:
             if len(requested_targets) > 1:
                 print(f"Results for {requested_target}\n")
-            selected_mode = (
-                "rich" if args.output_format == "auto" else args.output_format
-            )
+            selected_mode = "rich" if args.output_format == "auto" else args.output_format
             if selected_mode == "plain":
                 print(render_output_text(output_data))
             else:
@@ -1066,9 +1012,7 @@ def main():
 
     try:
         if args.output:
-            selected_mode = (
-                "plain" if args.output_format == "auto" else args.output_format
-            )
+            selected_mode = "plain" if args.output_format == "auto" else args.output_format
 
             if args.output == AUTO_TARGET_OUTPUT:
                 for requested_target, output_data in results:
@@ -1105,14 +1049,9 @@ def main():
     if len(requested_targets) > 1:
         failed_targets = len(requested_targets) - len(results)
         if failed_targets:
-            print(
-                f"\nAll hosts done: {len(results)}/{len(requested_targets)} succeeded, "
-                f"{failed_targets} failed"
-            )
+            print(f"\nAll hosts done: {len(results)}/{len(requested_targets)} succeeded, {failed_targets} failed")
         else:
-            print(
-                f"\nAll hosts done: {len(results)}/{len(requested_targets)} succeeded"
-            )
+            print(f"\nAll hosts done: {len(results)}/{len(requested_targets)} succeeded")
 
     if has_failures:
         sys.exit(1)

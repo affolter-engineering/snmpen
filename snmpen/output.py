@@ -1,6 +1,6 @@
 """Helpers for output formatting and display."""
 
-from .utils import value_to_string
+from snmpen.utils import value_to_string
 
 FIELDS_ORDER = [
     "Host IP address",
@@ -109,13 +109,11 @@ def _render_text_list(title, items):
             lines.append(" | ".join(str(name).strip() for name in header))
             lines.append("-" * len(lines[-1]))
 
-        for row in rows:
-            lines.append(" | ".join(_normalized_scalar(cell) for cell in row))
+        lines.extend(" | ".join(_normalized_scalar(cell) for cell in row) for row in rows)
 
         return "\n".join(lines)
 
-    for item in items:
-        lines.append(_normalized_scalar(item))
+    lines.extend(_normalized_scalar(item) for item in items)
     return "\n".join(lines)
 
 
@@ -140,9 +138,8 @@ def render_output_text(output_data):
 def render_output_rich_text(output_data):
     """Render output data using Rich tables and return plain exported text."""
     if Console is None or Table is None:
-        raise RuntimeError(
-            "rich is required for rich-formatted output. Install it with: pip install rich"
-        )
+        msg = "rich is required for rich-formatted output. Install it with: pip install rich"
+        raise RuntimeError(msg)
 
     record_console = Console(record=True, force_terminal=False, color_system=None)
     _render_output(record_console, output_data)
@@ -166,7 +163,7 @@ def _render_rich_list(console, title, items):
     if all(isinstance(item, dict) for item in items):
         columns = []
         for item in items:
-            for key in item.keys():
+            for key in item:
                 if key not in columns:
                     columns.append(key)
 
@@ -175,9 +172,7 @@ def _render_rich_list(console, title, items):
             table.add_column(str(col).strip(), overflow="fold")
 
         for item in items:
-            row = [
-                value_to_string(item.get(col, "-")).strip() or "-" for col in columns
-            ]
+            row = [value_to_string(item.get(col, "-")).strip() or "-" for col in columns]
             table.add_row(*row)
 
         console.print(table)
@@ -191,9 +186,7 @@ def _render_rich_list(console, title, items):
             header = items[0]
             rows = items[1:]
 
-        col_count = (
-            len(header) if header else max((len(row) for row in rows), default=1)
-        )
+        col_count = len(header) if header else max((len(row) for row in rows), default=1)
         if col_count == 0:
             col_count = 1
 
@@ -207,10 +200,7 @@ def _render_rich_list(console, title, items):
                 table.add_column(f"Col {idx + 1}", overflow="fold")
 
         for row in rows:
-            padded = [
-                value_to_string(row[idx]).strip() if idx < len(row) else "-"
-                for idx in range(col_count)
-            ]
+            padded = [value_to_string(row[idx]).strip() if idx < len(row) else "-" for idx in range(col_count)]
             table.add_row(*[(cell or "-") for cell in padded])
 
         console.print(table)
@@ -226,9 +216,7 @@ def _render_rich_list(console, title, items):
 def print_output(output_data):
     """Print the formatted enumeration output to the console."""
     if Console is None or Table is None:
-        print(
-            "rich is required for formatted output. Install it with: pip install rich"
-        )
+        print("rich is required for formatted output. Install it with: pip install rich")
         return
 
     console = Console()
@@ -237,9 +225,7 @@ def print_output(output_data):
 
 def _render_output(console, output_data):
     """Render output data using Rich tables to a given console."""
-    summary = Table(
-        title="System information", show_header=True, header_style="bold magenta"
-    )
+    summary = Table(title="System information", show_header=True, header_style="bold magenta")
     summary.add_column("Field", style="bold")
     summary.add_column("Value", overflow="fold")
 

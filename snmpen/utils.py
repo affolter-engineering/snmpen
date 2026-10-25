@@ -7,6 +7,8 @@ from datetime import timedelta
 
 import humanize
 
+IPV4_BYTE_LENGTH = 4
+
 
 def truncate_to_twidth(string, twidth):
     """Truncate a string to a specified width."""
@@ -85,7 +87,7 @@ def get_mac_string(raw_value):
     try:
         mac_bytes = bytes(raw_value)
         return ":".join(f"{b:02x}" for b in mac_bytes[:6])
-    except Exception:
+    except (TypeError, ValueError):
         return value_to_string(raw_value)
 
 
@@ -105,10 +107,10 @@ def get_ip_string(raw_value):
     """Convert a raw binary value to an IP address string (dotted decimal)."""
     try:
         ip_bytes = bytes(raw_value)
-        if len(ip_bytes) == 4:
+        if len(ip_bytes) == IPV4_BYTE_LENGTH:
             return ".".join(str(b) for b in ip_bytes)
         return value_to_string(raw_value)
-    except Exception:
+    except (TypeError, ValueError):
         return value_to_string(raw_value)
 
 
@@ -133,7 +135,8 @@ def resolve_target_addresses(target, port):
             type=socket.SOCK_DGRAM,
         )
     except socket.gaierror as exc:
-        raise ValueError(f"Unable to resolve target '{target}'") from exc
+        msg = f"Unable to resolve target '{target}'"
+        raise ValueError(msg) from exc
 
     targets = []
     seen = set()
@@ -152,4 +155,5 @@ def resolve_target_addresses(target, port):
     if targets:
         return targets
 
-    raise ValueError(f"No IPv4/IPv6 address found for target '{target}'")
+    msg = f"No IPv4/IPv6 address found for target '{target}'"
+    raise ValueError(msg)

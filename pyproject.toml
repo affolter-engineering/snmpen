@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.30.0"]
+requires = ["hatchling>=1.29.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -49,6 +49,11 @@ packages = ["snmpen"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.ruff.lint.per-file-ignores]
+"snmpen/snmpen.py" = ["T201"]
+"snmpen/output.py" = ["T201"]
+"tests/**" = ["S101", "PLR2004"]
 
 [tool.hatch.build.targets.sdist]
 include = [
