@@ -1,8 +1,13 @@
 # SNMPen (SNMP Enumerator)
 
-You know `snmpcheck`? Good, `snmpen` is doing the same. It's another enumerator for SNMP enabled hosts. It started as a drop-in replacement for `snmpcheck` which was no longer maintained back in 2018/2019. Nowadays, `snmpen` has its own heart and mind but still shares a similar CLI interface with `snmpcheck`.
+You know `snmpcheck`? Good, `snmpen` is doing the same. It's another
+enumerator for SNMP enabled hosts. It started as a drop-in replacement
+for `snmpcheck` which was no longer maintained back in 2018/2019. Nowadays,
+`snmpen` has its own heart and mind but still shares a similar CLI
+interface with `snmpcheck`.
 
-Enumerations are happening against RFC1157-compliant systems. The heavy lifting is done by `pysnmp`.
+Enumerations are happening against RFC1157-compliant systems. The heavy
+lifting is done by `pysnmp`.
 
 ## Installation
 
@@ -10,8 +15,8 @@ Enumerations are happening against RFC1157-compliant systems. The heavy lifting 
 pip install snmpen
 ```
 
-For Nix or NixOS users is a package available. Keep in mind that the latest releases might only
-be present in the ``unstable`` channel.
+For Nix or NixOS users is a package available. Keep in mind that the latest
+releases might only be present in the ``unstable`` channel.
 
 ```bash
 nix-env -iA nixos.snmpen
@@ -56,11 +61,14 @@ Usage examples:
   snmpen -w -d -t 10 172.16.1.1
 ```
 
-The hosts file supports one target per line. Empty lines and lines starting with # are ignored.
+The hosts file supports one target per line. Empty lines and lines starting
+with # are ignored.
 
-When `-o` is used without a filename, snmpen writes one file per successful target using `<target>.txt`.
+When `-o` is used without a filename, snmpen writes one file per successful
+target using `<target>.txt`.
 
-The system information section also shows the detected supported SNMP versions for the host (currently SNMPv1 and SNMPv2c detection).
+The system information section also shows the detected supported SNMP versions
+for the host (currently SNMPv1 and SNMPv2c detection).
 
 ## License
 
