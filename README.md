@@ -64,4 +64,4 @@ The system information section also shows the detected supported SNMP versions f
 
 ## License
 
-`snmpen` is licensed under MIT. 
+`snmpen` is licensed under MIT.
