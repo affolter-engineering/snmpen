@@ -780,7 +780,7 @@ def main():
     """Parse command-line arguments and run SNMP enumeration."""
 
     script_name = "snmpen"
-    script_version = "1.1.4"
+    script_version = "1.1.6"
     script_description = "SNMP Enumerator"
     script_copyright = "Copyright (c) 2019-2026"
     script_author = "Fabian Affolter <fabian@affolter-engineering.ch>"
